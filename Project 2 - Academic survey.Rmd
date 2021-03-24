@@ -1,0 +1,127 @@
+---
+title: "Project 2 - Academic survey"
+output: html_document
+---
+## Part 1
+```{r setup, include=FALSE}
+library(DBI) 
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+likert_survey_db <- dbConnect(RSQLite::SQLite(), "~/Desktop/EPFL Data Science Course/DoggoThings/likert_survey.db") 
+
+dbListTables(likert_survey_db)
+
+professors_tbl <- tbl(likert_survey_db, "PROFESSORS") #Run in the tables.
+students_tbl <- tbl(likert_survey_db, "STUDENTS") 
+```
+
+Converting the data into two separate tibbles for further analysis and processing in R. 
+```{r tibbles, echo=TRUE}
+professors <- as_tibble(professors_tbl)  #Convert both tables into tibbles (alternative to use the collect() function.)
+students <- as_tibble(students_tbl)
+
+professors #View the output
+students #View the output
+```
+
+## Part 2
+
+```{r basic_info, echo=FALSE}
+
+professors <-
+professors %>% 
+  group_by(QuestionID) %>% 
+  mutate(Total_Answers_Profs=sum(TotallyDisagree, Disagree, Agree, TotallyAgree)) %>% 
+  ungroup()
+
+students <-
+  students%>% 
+  group_by(QuestionID) %>% 
+  mutate(Total_Answers_Students=sum(TotallyDisagree, Disagree, Agree, TotallyAgree)) %>% 
+  ungroup()
+
+total_no_ans_studs <-
+  students %>% 
+  summarise(total=sum(TotallyDisagree, Disagree, Agree, TotallyAgree))
+
+total_no_ans_profs <-
+  professors %>% 
+  summarise(total=sum(TotallyDisagree, Disagree, Agree, TotallyAgree))
+```
+In total, there were **`r total_no_ans_profs`** answers from professors and **`r total_no_ans_studs`** from students.
+
+Based on the number of responses, it looks like 115 professors and 244 students started the survey, but towards the end, the attention of some started to wane and they did not provide an answer for all of the questions. This can be seen from the table below, which displays the total number of answers for the first 10 questions. The total number of questions for each response is steady at 115 for the professors and 244 for the students.
+
+```{r responses_top_10, echo=FALSE}
+
+professors %>% 
+  left_join(students, by="QuestionID") %>% #Join the two tibbles in order to display just one table.
+  select(QuestionID, Total_Answers_Profs, Total_Answers_Students) %>% #Select just the three relevant columns.
+  head(10) #Choose first 10 rows.
+```
+
+In contrast, for the last 10 questions, the total number of answers varies, as can be seen from the table below. For instance, the final question had only 103 professor responses and similarly only 230 students answers. Perhaps the participants' attention started to wane towards the end or the final questions were somehow not relevant or interesting to some participants.
+
+```{r responses_bottom_10, echo=FALSE}
+professors %>% 
+  left_join(students, by="QuestionID") %>% 
+  select(QuestionID, Total_Answers_Profs, Total_Answers_Students) %>% 
+  tail(10) #Choose last 10 rows.
+```
+
+## Part 3. 
+```{r facet_plot_data_prep, include=FALSE}
+#This chunk prepares the data for the facet plot in the next chunk. No output from this chunk is displayed in the final report.
+
+#First, prepare pivot the original data into long tibbles for each type of respondent, starting with the professors tibble.
+pivoted_professors <-
+  professors %>% 
+  pivot_longer(                                                        #Pivot the table into long format
+    cols= c(TotallyDisagree, Disagree, Agree, TotallyAgree),
+    names_to = "type_of_response", 
+    values_to = "count_of_response") %>% 
+  mutate(respondent = "Professor") %>%                                 #Add a column to identify the respondent
+  select(QuestionID, type_of_response, count_of_response, respondent)  #Choose only the relevant columns
+
+#...Repeat for the students tibble.
+pivoted_students <-
+  students %>% 
+  pivot_longer(
+    cols= c(TotallyDisagree, Disagree, Agree, TotallyAgree),
+    names_to = "type_of_response", 
+    values_to = "count_of_response") %>% 
+  mutate(respondent = "Student") %>% 
+  select(QuestionID, type_of_response, count_of_response, respondent)
+
+#Combine the two by saving the two pivoted tibbles on top of each other, so that we're left with just one tibble which is then used for the facet plot.
+combined_all <-
+bind_rows(pivoted_professors, pivoted_students) 
+```
+
+The below graph displays a faceted summary of all responses per question. 
+```{r facet_plot, echo=FALSE, fig.height=10, fig.width=15}
+combined_all %>% 
+ggplot(aes(x=type_of_response, y=count_of_response, fill=respondent)) +
+  geom_col(position="dodge")+                              #Place the columns next to each other rather than stacking on top of each other
+  facet_wrap(vars(QuestionID))+                            #Apply the faceting according to QuestionID
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) #Rotate the x-axis labels from horizontal to vertical.
+```
+
+## Part 4. 
+
+The below table displays the type of answer with the highest number of answers for each question according to respondent type.
+```{r response_summary, echo=FALSE}
+
+combined_all %>%                                    #Use the tibble from the previous part as a starting point.
+  arrange(QuestionID, respondent, type_of_response) %>%   #This was just to simplify viewing the data
+  select(QuestionID, respondent, type_of_response, count_of_response) %>%   #Select only the columns that are needed for this part.
+  group_by(QuestionID, respondent) %>%              #Group by question ID and respondent type to find max value as per each dimension. 
+  mutate(max_count = max(count_of_response)) %>%    #Add a column with max count of responses (not using summarise in order to retain the column with the types of responses)
+  filter(count_of_response==max_count) %>%          #Filter out all other rows except the ones that match the highest count.
+  select(-count_of_response) %>%                    #Remove the other response count column from the view as the remaining values in it are now just a duplicate of the max_count one.
+  print(n=64)                                       #Print all rows into the final output (rather than just initial 10 where there is no difference in the responses)
+```
+
+*Created by DataDoggo for the EPFL Foundations of Data Science course, March 2021*

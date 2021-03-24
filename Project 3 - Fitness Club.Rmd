@@ -1,0 +1,158 @@
+---
+title: "Project 3 - Fitness Tracking"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+#Basic set-up to load libraries and project data. 
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(tidylog)
+library(tidyr)
+library(janitor)
+library(digest)
+library(purrr)
+library(lubridate)
+library(styler)
+
+library(readr)
+fitness_members <- read_csv("~/Desktop/EPFL Data Science Course/fitness_members.csv")
+fitness_tracking <- read_csv("~/Desktop/EPFL Data Science Course/fitness_tracking.csv")
+
+#Column names are already formatted okay so no clean up is needed. 
+
+```
+
+#### Part 1. 
+**Basic breakdown of gym members.**
+```{r basic_view, echo=FALSE, message=FALSE}
+fitness_members %>% 
+  tabyl(gender) %>% 
+  adorn_pct_formatting(digits = 1)
+```
+
+#### Part 2: 
+**How many successful recommendations has member 000115 made?**
+```{r recommendations_part2, echo=FALSE, message=FALSE}
+number_recommendations_000115 <- 
+  fitness_members %>% 
+  filter(recommendation_from =="000115") %>% 
+  print()
+```
+
+#### Part 3: 
+**What is the maximum number of successful recommendations made by a member of the Fitness Club?**
+#### Part 4: 
+**What is the id code of the member who made the maximum number of successful recommendations?**
+```{r recommendations_parts34, echo=FALSE, message=FALSE}
+number_recommendations <- 
+  fitness_members %>% 
+  filter(recommendation_from !="NA") %>% 
+  arrange(recommendation_from) %>% 
+  tabyl(recommendation_from) %>% 
+  arrange(desc(n)) %>% 
+  head(5)
+
+number_recommendations
+```
+
+#### Part 5. 
+**How many female members in the Premium membership category made one or more successful recommendations?**
+```{r female_premiums, echo=FALSE, message=FALSE}
+#Option no1 to achieve this result (a slightly convoluted way)
+ids_of_female_premiums <- 
+ fitness_members %>% 
+   filter(gender == "F", m_category == "Premium") %>% #Filter our Female Premium members
+   select(recommendation_from = id)  #Rename id column to recommendation_from to compare the lists with the inner join.
+
+inner_join(ids_of_female_premiums, fitness_members, by = c("recommendation_from"))
+
+#Option no2 (and a simpler way) to achieve the same result.
+ids_of_female_premiums <- 
+ fitness_members %>% 
+  filter(gender == "F", m_category == "Premium") %>% #Filter our Female Premium members
+  pull(id)
+
+fitness_members %>% 
+ filter(recommendation_from %in% ids_of_female_premiums)
+```
+
+#### Part 6: What is the BMI value of member 000042 at registration date?  
+(Note:BMI is calculated weight/height^2)
+```{r BMI, echo=FALSE, message=FALSE}
+#Convert height values from cm into m
+BMI_000042 <-
+fitness_members %>% 
+  mutate(height = height/100, BMI = weight/(height^2)) %>% #Convert cm to m for height and add a column for BMI.
+  filter(id == "000042") %>% #Display result only for member 000042
+  pull(BMI)
+
+
+```
+The BMI of member 000042 at registration was `r round(BMI_000042, digits=2)`
+
+#### Part 7. 
+As mentioned in the introduction, the Fitness Club has 420 members. Some of them have not yet completed the first week. Those members are not included in the fitness_tracking.csv data file.
+
+Which fitness club members have not yet reached week 1?
+```{r week_1, echo=FALSE, message=FALSE}
+fitness_members %>% 
+  full_join(fitness_tracking, by = c("id")) %>%  #Join the two tibbles together, retaining all rows.
+  filter(is.na(wk_001)) %>% #Show only rows where there is no value yet for wk_001, i.e. members that have not yet completed week 1.
+  select(id) 
+
+```
+
+#### Part 8. 
+Convert member weights into a long table (in preparation for Project 4).  
+Note: Discard from fitness_tracking_long all the rows where no weight value is available. And make sure that wk_000 values (i.e. values at registration date) are also included.
+```{r tracking_long, message=FALSE, warning=FALSE, include=FALSE}
+fitness_tracking_long <-
+fitness_members %>% 
+  full_join(fitness_tracking, by = c("id")) %>% 
+  mutate(wk_000 = weight) %>%                   #Include also joining weight as wk_000
+  select(1, wk_000, starts_with("wk")) %>%      #Exclude all columns apart from id and weight related colums
+  pivot_longer(
+    cols= c(starts_with("wk")),
+    names_to = "week", 
+    values_to = "weight") %>% 
+  filter(weight != "")   #Exclude rows where no weight value is available.
+
+```
+
+#### Part 9. Use the data set fitness_tracking_long to compute weekly BMI values for each member. 
+
+**What is the BMI value of member 000024 at week 11?**
+```{r weekly_BMI, echo=FALSE, message=FALSE, warning=FALSE}
+fitness_tracking_long_bmi <-
+fitness_members %>% 
+  full_join(fitness_tracking, by = c("id")) %>% 
+  mutate(wk_000 = weight) %>%                   #Include also joining weight as wk_000
+  select(id, height, wk_000, starts_with("wk")) %>%      #Exclude all columns apart from id and weight related colums
+  group_by(id) %>% 
+  pivot_longer(
+    cols= c(starts_with("wk")),
+    names_to = "week", 
+    values_to = "weight") %>% 
+  filter(weight != "") 
+
+BMI_000024_11 <-
+fitness_tracking_long_bmi %>% 
+  mutate(height = height/100, BMI = weight/(height^2)) %>% 
+  filter(id == "000024", week == "wk_011") %>% 
+  pull(BMI)
+```
+The BMI of member 000024 is `r round(BMI_000024_11, digits=2)`
+
+#### Part 10.  
+**What is the BMI percentage change for member 000015 from week 6 to week 7?**
+```{r BMI_change, include=FALSE}
+perc_chage_000015 <-
+fitness_tracking_long_bmi %>% 
+  mutate(height = height/100, BMI = weight/(height^2), BMI_change = (BMI/lag(BMI, n=1)-1)) %>% 
+  filter(id=="000015", week == "wk_007") %>% 
+  pull(BMI_change)
+```
+The user experimented a drop in BMI of  `r round(perc_chage_000015*100, digits=2)` %
